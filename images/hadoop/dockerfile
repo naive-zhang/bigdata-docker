@@ -1,0 +1,145 @@
+FROM  baseos:2.0
+
+ARG HADOOP_TARBALL=hadoop-3.2.4.tar.gz
+# 提前下载好的java8压缩包, 下载地址: https://www.oracle.com/java/technologies/downloads/
+ARG JAVA_TARBALL=jdk-8u421-linux-x64.tar.gz
+
+ARG HIVE_TARBALL=hive-3.1.3-bin.tar.gz
+
+# zeepelin
+# ARG ZEPPELIN_TARBALL=zeppelin-0.11.1-bin-all.tgz
+
+
+# MySQL驱动路径
+ARG MYSQL_JDBC_JAR=mysql-connector-j-8.0.33.jar
+# HIVE试用ICEBERG的runtime包
+ARG ICEBERG_RUNTIME_JAR=iceberg-hive-runtime-1.6.1.jar
+# mapreduce任务与hive metastore连同的包(ICEBERG MR任务触发)
+ARG FBF303=libfb303-0.9.3.jar
+
+# ---------- 脚本 ---------------
+# hadoop启动脚本
+ARG HADOOP_START_SCRIPT=start_hadoop.sh
+# hive启动脚本
+ARG HIVE_START_SCRIPT=start_hive.sh
+ARG HIVE_STOP_SCRIPT=stop_hive.sh
+
+ENV HADOOP_HOME /app/hadoop
+ENV JAVA_HOME /usr/java
+ENV HIVE_HOME /app/hive
+# ENV ZEPPELIN_HOME /app/zeppelin
+
+WORKDIR $JAVA_HOME
+WORKDIR $HADOOP_HOME
+
+# 拷贝jdk8安装包
+COPY thirdparty/${JAVA_TARBALL} ${JAVA_HOME}/${JAVA_TARBALL}
+
+# 拷贝hadoop安装包
+COPY thirdparty/${HADOOP_TARBALL} ${HADOOP_HOME}/${HADOOP_TARBALL}
+
+RUN tar -zxvf /usr/java/${JAVA_TARBALL} --strip-components 1 -C /usr/java && \
+    rm /usr/java/${JAVA_TARBALL} && \
+    # 设置java8环境变量
+    echo export JAVA_HOME=${JAVA_HOME} >> ~/.bashrc && \
+    echo export PATH=\$PATH:\$JAVA_HOME/bin >> ~/.bashrc && \
+    echo export JAVA_HOME=${JAVA_HOME} >> /etc/profile && \
+    echo export PATH=\$PATH:\$JAVA_HOME/bin >> /etc/profile && \
+    # 下载hadoop安装包
+    # wget --no-check-certificate https://mirrors.tuna.tsinghua.edu.cn/apache/hadoop/common/stable/${TARBALL} && \
+    # 解压hadoop安装包
+    tar -zxvf ${HADOOP_TARBALL} --strip-components 1 -C $HADOOP_HOME && \
+    rm ${HADOOP_TARBALL} && \
+    # 设置从节点
+    echo "worker1\nworker2\nworker3" > $HADOOP_HOME/etc/hadoop/workers && \
+    mkdir /app/hdfs && \
+    # java8软连接
+    ln -s $JAVA_HOME/bin/java /bin/java
+
+# 拷贝hadoop配置文件
+RUN cp /etc/hadoop/hdfs-site.xml $HADOOP_HOME/etc/hadoop/hdfs-site.xml
+RUN cp /etc/hadoop/core-site.xml $HADOOP_HOME/etc/hadoop/core-site.xml
+RUN cp /etc/hadoop/mapred-site.xml $HADOOP_HOME/etc/hadoop/mapred-site.xml
+RUN cp /etc/hadoop/yarn-site.xml $HADOOP_HOME/etc/hadoop/yarn-site.xml
+
+# 拷贝启动脚本
+COPY ${HADOOP_START_SCRIPT} ${HADOOP_HOME}/${HADOOP_START_SCRIPT}
+
+# 拷贝fbf解决metastore通信的问题
+RUN cp /lib/jars/${FBF303} ${HADOOP_HOME}/share/hadoop/common/lib/${FBF303}
+
+# 设置hadoop环境变量
+RUN echo export JAVA_HOME=$JAVA_HOME >> $HADOOP_HOME/etc/hadoop/hadoop-env.sh && \
+    echo export HADOOP_MAPRED_HOME=$HADOOP_HOME >> $HADOOP_HOME/etc/hadoop/hadoop-env.sh && \
+    echo export HDFS_NAMENODE_USER=root >> $HADOOP_HOME/etc/hadoop/hadoop-env.sh && \
+    echo export HDFS_DATANODE_USER=root >> $HADOOP_HOME/etc/hadoop/hadoop-env.sh && \
+    echo export HDFS_SECONDARYNAMENODE_USER=root >> $HADOOP_HOME/etc/hadoop/hadoop-env.sh && \
+    echo export YARN_RESOURCEMANAGER_USER=root >> $HADOOP_HOME/etc/hadoop/hadoop-env.sh && \
+    echo export YARN_NODEMANAGER_USER=root >> $HADOOP_HOME/etc/hadoop/hadoop-env.sh
+
+# ssh免登录设置
+RUN echo "/etc/init.d/ssh start" >> ~/.bashrc && \
+    ssh-keygen -t rsa -P '' -f ~/.ssh/id_rsa && \
+    cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys && \
+    chmod 0600 ~/.ssh/authorized_keys
+
+# hive相关配置
+WORKDIR $HIVE_HOME
+COPY ./thirdparty/${HIVE_TARBALL} ${HIVE_HOME}/${HIVE_TARBALL}
+
+RUN tar -zxvf ${HIVE_HOME}/${HIVE_TARBALL} --strip-components 1 -C ${HIVE_HOME} && \
+    rm ${HIVE_HOME}/${HIVE_TARBALL} && \
+    rm ${HIVE_HOME}/conf/hive-env.sh.template && \
+    mv ${HIVE_HOME}/conf/hive-default.xml.template ${HIVE_HOME}/conf/hive-default.xml
+
+# 复制MySQL相关的驱动
+RUN cp /lib/jars/${MYSQL_JDBC_JAR} ${HIVE_HOME}/lib/${MYSQL_JDBC_JAR}
+# 复制Hive相关的配置文件的信息
+RUN cp /etc/hive/hive-env.sh ${HIVE_HOME}/conf/hive-env.sh
+RUN cp /etc/hive/hive-site.xml ${HIVE_HOME}/conf/hive-site.xml
+RUN cp /etc/hadoop/hdfs-site.xml ${HIVE_HOME}/conf/hdfs-site.xml
+RUN cp /etc/hadoop/core-site.xml ${HIVE_HOME}/conf/core-site.xml
+RUN cp /etc/hadoop/mapred-site.xml ${HIVE_HOME}/conf/mapred-site.xml
+RUN cp /etc/hadoop/yarn-site.xml ${HIVE_HOME}/conf/yarn-site.xml
+# 依赖冲突的排包
+RUN mv ${HIVE_HOME}/lib/guava-19.0.jar ${HIVE_HOME}/lib/guava-19.0.jar.bak
+RUN cp ${HADOOP_HOME}/share/hadoop/hdfs/lib/guava-27.0-jre.jar ${HIVE_HOME}/lib/
+# 复制ICEBERG RUNTIME
+RUN cp /lib/jars/${ICEBERG_RUNTIME_JAR} ${HIVE_HOME}/lib/${ICEBERG_RUNTIME_JAR}
+RUN mkdir ${HIVE_HOME}/logs
+# 复制hive初始化脚本
+COPY ./init_hive.sh ${HIVE_HOME}/init_hive.sh
+# 复制启动和停止脚本
+COPY ${HIVE_START_SCRIPT} ${HIVE_HOME}/${HIVE_START_SCRIPT}
+COPY ${HIVE_STOP_SCRIPT} ${HIVE_HOME}/${HIVE_STOP_SCRIPT}
+
+# 复制相关依赖以确保能够正常运行Iceberg MR
+RUN cp -r /app/hive/lib/datanucleus-* /app/hadoop/share/hadoop/common/lib/ && \
+    cp -r /app/hive/lib/mysql-connector-j-8.0.33.jar /app/hadoop/share/hadoop/common/lib/ && \
+    cp -r /app/hive/conf/hive-site.xml /app/hadoop/etc/hadoop/ && \
+    cp -r /app/hive/lib/javax.jdo-3.2.0-m3.jar /app/hadoop/share/hadoop/common/lib/ && \  
+    cp -r /app/hive/lib/antlr*.jar /app/hadoop/share/hadoop/common/lib/
+
+# zeeplin相关配置
+# WORKDIR ${ZEPPELIN_HOME}
+# COPY thirdparty/${ZEPPELIN_TARBALL} ${ZEPPELIN_HOME}/${ZEPPELIN_TARBALL}
+# 解压tarball
+# RUN tar -zxvf ${ZEPPELIN_HOME}/${ZEPPELIN_TARBALL} --strip-components 1 -C ${ZEPPELIN_HOME} && \
+    # rm ${ZEPPELIN_HOME}/${ZEPPELIN_TARBALL}
+# 复制驱动
+# COPY lib/${MYSQL_JDBC_JAR} ${ZEPPELIN_HOME}/lib/${MYSQL_JDBC_JAR}
+
+
+
+WORKDIR $HADOOP_HOME
+
+# 复制Hadoop初始化脚本
+COPY ./init_hadoop_master.sh $HADOOP_HOME/init_hadoop_master.sh
+
+# 控制一下系统变量
+RUN echo "export HADOOP_HOME=${HADOOP_HOME}" >> /etc/profile
+RUN echo "export PATH=\$HADOOP_HOME/bin:\$PATH" >> /etc/profile
+RUN echo "export HIVE_HOME=${HIVE_HOME}" >> /etc/profile
+RUN echo "export PATH=\$HIVE_HOME/bin:\$PATH" >> /etc/profile
+# RUN echo "export HADOOP_CLASSPATH=${HIVE_HOME}/lib:\$HADOOP_CLASSPATH" >> /etc/profile
+# RUN echo "export HADOOP_CLASSPATH=${HIVE_HOME}/lib:\$HADOOP_CLASSPATH" >> /etc/profile

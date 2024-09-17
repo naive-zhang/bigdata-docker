@@ -1,0 +1,23 @@
+FROM  hadoop:2.0
+
+ARG FLINK_TARBALL=flink-1.17.2-bin-scala_2.12.tgz
+
+ENV HADOOP_HOME /app/hadoop
+ENV JAVA_HOME /usr/java
+ENV FLINK_HOME /app/flink
+
+WORKDIR $JAVA_HOME
+WORKDIR $HADOOP_HOME
+
+
+# 配置flink
+WORKDIR $FLINK_HOME
+COPY ./thirdparty/${FLINK_TARBALL} ${FLINK_HOME}/${FLINK_TARBALL}
+
+RUN tar -zxvf ${FLINK_HOME}/${FLINK_TARBALL} --strip-components 1 -C ${FLINK_HOME} && \
+    rm ${FLINK_HOME}/${FLINK_TARBALL} && \
+    cp /lib/jars/flink/*.jar ${FLINK_HOME}/lib/
+
+# RUN export HADOOP_CLASSPATH=`/app/hadoop/bin/hadoop classpath`
+
+RUN echo 'export HADOOP_CLASSPATH=`/app/hadoop/bin/hadoop classpath`' >> /etc/profile

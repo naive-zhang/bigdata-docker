@@ -1,0 +1,77 @@
+FROM  baseos:2.0
+
+# 提前下载好的java8压缩包, 下载地址: https://www.oracle.com/java/technologies/downloads/
+ARG JAVA_TARBALL=jdk-8u421-linux-x64.tar.gz
+
+# spark相关的配置
+ARG SPARK_TAR_BALL=spark-3.2.2-bin-hadoop2.7.tgz
+
+
+# MySQL驱动路径
+ARG MYSQL_JDBC_JAR=mysql-connector-j-8.0.33.jar
+# ICEBERG SPARK RUNTIME
+ARG ICEBERG_SPARK_RUNTIME_JAR=iceberg-spark-runtime-3.2_2.12-1.4.3.jar
+
+# ---------- 脚本 ---------------
+# spark thrift启动脚本
+ARG SPARK_THRIFT_START_SCRIPT=start_thrift.sh
+
+
+ENV JAVA_HOME /usr/java
+ENV SPARK_HOME /app/spark
+
+
+# 拷贝jdk8安装包
+COPY thirdparty/${JAVA_TARBALL} ${JAVA_HOME}/${JAVA_TARBALL}
+
+RUN tar -zxvf /usr/java/${JAVA_TARBALL} --strip-components 1 -C /usr/java && \
+    rm /usr/java/${JAVA_TARBALL} && \
+    # 设置java8环境变量
+    echo export JAVA_HOME=${JAVA_HOME} >> ~/.bashrc && \
+    echo export PATH=\$PATH:\$JAVA_HOME/bin >> ~/.bashrc && \
+    echo export JAVA_HOME=${JAVA_HOME} >> /etc/profile && \
+    echo export PATH=\$PATH:\$JAVA_HOME/bin >> /etc/profile
+
+# 配置SPARK相关的配置
+WORKDIR ${SPARK_HOME}
+COPY thirdparty/${SPARK_TAR_BALL} ${SPARK_HOME}/${SPARK_TAR_BALL}
+# 解压tarball
+RUN tar -zxvf ${SPARK_HOME}/${SPARK_TAR_BALL} --strip-components 1 -C ${SPARK_HOME} && \
+    rm ${SPARK_HOME}/${SPARK_TAR_BALL}
+# 复制默认的配置文件
+RUN cp /etc/spark/spark-defaults.conf ${SPARK_HOME}/conf
+RUN cp /etc/spark/spark-env.sh ${SPARK_HOME}/conf
+# mysql
+RUN cp /lib/jars/${MYSQL_JDBC_JAR} ${SPARK_HOME}/jars
+# iceberg spark runtime
+RUN cp /lib/jars/${ICEBERG_SPARK_RUNTIME_JAR} ${SPARK_HOME}/jars
+# hdfs和yarn相关配置
+RUN cp /etc/hadoop/core-site.xml ${SPARK_HOME}/conf/
+RUN cp /etc/hadoop/hdfs-site.xml ${SPARK_HOME}/conf/
+RUN cp /etc/hadoop/yarn-site.xml ${SPARK_HOME}/conf/
+RUN cp /etc/hadoop/mapred-site.xml ${SPARK_HOME}/conf/
+# hive相关的配置
+RUN cp /etc/hive/*.xml ${SPARK_HOME}/conf/
+# 复制启动脚本
+COPY ${SPARK_THRIFT_START_SCRIPT} ${SPARK_HOME}/${SPARK_THRIFT_START_SCRIPT}
+
+
+
+WORKDIR $SPARK_HOME
+
+# NameNode WEB UI服务端口
+# EXPOSE 9870
+# nn文件服务端口
+# EXPOSE 9000
+# dfs.namenode.secondary.http-address
+# EXPOSE 9868
+# dfs.datanode.http.address
+# EXPOSE 9864
+# dfs.datanode.address
+# EXPOSE 9866
+# hive metastore
+# EXPOSE 9083
+# hiveserver2
+# EXPOSE 10000
+# zeppelin
+# EXPOSE 8080

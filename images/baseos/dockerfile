@@ -1,0 +1,37 @@
+FROM  ubuntu:20.04
+
+# 设置环境变量，选择中国的软件源
+ENV APT_MIRROR_URL https://mirrors.ustc.edu.cn/ubuntu/
+# 更新软件源列表
+RUN sed -i 's/archive.ubuntu.com/mirrors.ustc.edu.cn/g' /etc/apt/sources.list && \
+    sed -i 's/security.ubuntu.com/mirrors.ustc.edu.cn/g' /etc/apt/sources.list && \
+    apt-get update -y
+
+# 设置默认语言为UTF-8
+RUN apt-get install -y locales && \
+    locale-gen en_US.UTF-8 && \
+    update-locale LANG=en_US.UTF-8
+
+# 安装一些必要的软件包
+RUN apt-get install wget ssh vim curl lsof telnet iputils-ping mysql-client -y
+# 创建配置文件和jars需要存放的位置
+RUN mkdir /etc/hadoop
+RUN mkdir /etc/hive
+RUN mkdir /etc/spark
+RUN mkdir /lib/jars
+# 将需要用到的配置文件放入
+COPY hadoop-conf/core-site.xml /etc/hadoop/core-site.xml
+COPY hadoop-conf/hdfs-site.xml /etc/hadoop/hdfs-site.xml
+COPY hadoop-conf/mapred-site.xml /etc/hadoop/mapred-site.xml
+COPY hadoop-conf/yarn-site.xml /etc/hadoop/yarn-site.xml
+COPY hive-conf/hive-env.sh /etc/hive/hive-env.sh
+COPY hive-conf/hive-site.xml /etc/hive/hive-site.xml
+COPY spark-conf/spark-defaults.conf /etc/spark/spark-defaults.conf
+COPY spark-conf/spark-env.sh /etc/spark/spark-env.sh
+# 将需要的三方包放入
+COPY lib/iceberg-hive-runtime-1.6.1.jar /lib/jars/iceberg-hive-runtime-1.6.1.jar
+COPY lib/iceberg-spark-runtime-3.2_2.12-1.4.3.jar /lib/jars/iceberg-spark-runtime-3.2_2.12-1.4.3.jar
+COPY lib/libfb303-0.9.3.jar /lib/jars/libfb303-0.9.3.jar
+COPY lib/mysql-connector-j-8.0.33.jar /lib/jars/mysql-connector-j-8.0.33.jar
+COPY lib/flink /lib/jars/flink
+RUN /bin/bash

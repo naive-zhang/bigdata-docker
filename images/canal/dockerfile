@@ -1,0 +1,37 @@
+FROM  baseos:2.0
+
+# 提前下载好的java8压缩包, 下载地址: https://www.oracle.com/java/technologies/downloads/
+ARG JAVA_TARBALL=jdk-8u421-linux-x64.tar.gz
+# canal的相关的配置
+ARG CANAL_TARBALL=canal.deployer-1.1.5.tar.gz
+
+ARG CANAL_HOME=/opt/canal
+
+ENV JAVA_HOME /usr/java
+
+RUN mkdir ${CANAL_HOME}
+
+# 拷贝jdk8安装包
+COPY thirdparty/${JAVA_TARBALL} ${JAVA_HOME}/${JAVA_TARBALL}
+
+RUN tar -zxvf /usr/java/${JAVA_TARBALL} --strip-components 1 -C /usr/java && \
+    rm /usr/java/${JAVA_TARBALL} && \
+    # 设置java8环境变量
+    echo export JAVA_HOME=${JAVA_HOME} >> ~/.bashrc && \
+    echo export PATH=\$PATH:\$JAVA_HOME/bin >> ~/.bashrc && \
+    echo export JAVA_HOME=${JAVA_HOME} >> /etc/profile && \
+    echo export PATH=\$PATH:\$JAVA_HOME/bin >> /etc/profile
+
+
+# 拷贝canal
+COPY thirdparty/${CANAL_TARBALL} ${CANAL_HOME}/${CANAL_TARBALL}
+
+# 解压tarball
+RUN tar -zxvf ${CANAL_HOME}/${CANAL_TARBALL} -C ${CANAL_HOME} && \
+    rm ${CANAL_HOME}/${CANAL_TARBALL}
+# 复制默认的配置文件
+COPY ./conf/canal.properties ${CANAL_HOME}/conf/canal.properties
+COPY ./conf/instance.properties ${CANAL_HOME}/conf/example/instance.properties
+
+# RUN echo "/opt/kafka/bin/kafka-topics.sh --zookeeper zk:2181 --create --topic example --partitions 1 --replication-factor 1" >> /usr/bin/start-kafka.sh && \
+    # echo "sh /opt/canal/bin/startup.sh" >> /usr/bin/start-kafka.sh
